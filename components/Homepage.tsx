@@ -1,19 +1,21 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import PullToRefresh from "pulltorefreshjs"; // Ensure you run: npm install pulltorefreshjs
 import {
   MoreHorizontal,
   MessageSquare,
   Home,
-  Wallet,
-  CreditCard,
+  LifeBuoy,
+  Tag,
   User,
   Clock,
   Sun,
   Moon,
+  RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -56,43 +58,30 @@ const ServiceItem = ({
 
 export default function FintechDashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [isDarkMode, setIsDarkMode] = useState(true); // Default to dark for this dashboard
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [userData, setUserData] = useState({
-    sFname: "User",
+    displayName: "User",
     balance: "0.00",
     cashback: "0.00",
+    email: "", // Needed for refresh request
   });
 
-  useEffect(() => {
-    // 1. Handle Theme Persistence
-    const savedTheme = localStorage.getItem("app_theme");
-    if (savedTheme === "light") {
-      setIsDarkMode(false);
-    } else {
-      setIsDarkMode(true);
-    }
-
-    // 2. Dynamic Clock
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-
-    // 3. Fetch User Data
+  // --- REFRESH LOGIC ---
+  const syncDataFromStorage = useCallback(() => {
     const rawSession = localStorage.getItem("user_session");
     if (rawSession) {
       try {
         const session = JSON.parse(rawSession);
-        const user = session.user_data; // Shortcut for readability
+        const user = session.user_data;
 
         setUserData({
-          // Match the state key 'sFname' with the API key 'sFname'
-          sFname: user?.sFname || "User",
-
-          // Use 'sWallet' as the source for balance
-          balance: parseFloat(user?.sWallet || 0).toLocaleString(undefined, {
+          displayName: user?.full_name?.split(" ")[0] || "User",
+          email: user?.email || "",
+          balance: parseFloat(user?.balance || 0).toLocaleString(undefined, {
             minimumFractionDigits: 2,
           }),
-
-          // Use 'sCashBack' as the source for cashback
-          cashback: parseFloat(user?.sCashBack || 0).toLocaleString(undefined, {
+          cashback: parseFloat(user?.cashback || 0).toLocaleString(undefined, {
             minimumFractionDigits: 2,
           }),
         });
@@ -100,9 +89,84 @@ export default function FintechDashboard() {
         console.error("Failed to parse session", e);
       }
     }
-
-    return () => clearInterval(timer);
   }, []);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      // Get the email from current state or storage
+      const rawSession = localStorage.getItem("user_session");
+      if (!rawSession) return;
+      const session = JSON.parse(rawSession);
+      const phone = session.user_data?.phone;
+
+      const response = await fetch(
+        "https://pancity.com.ng/app/api/user/app-refresh/index.php",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (result.status === "success") {
+        await Haptics.impact({ style: ImpactStyle.Medium });
+
+        // 1. Replicate login.tsx storage pattern exactly
+        const token = result.token || "";
+        const updatedUserData = result.user_data || {};
+
+        const sessionData = {
+          token: token,
+          user_data: updatedUserData,
+        };
+
+        localStorage.setItem("user_session", JSON.stringify(sessionData));
+        localStorage.setItem("token", token);
+        localStorage.setItem("user_data", JSON.stringify(updatedUserData));
+        localStorage.setItem("userToken", token);
+
+        // 2. Sync UI
+        syncDataFromStorage();
+      }
+    } catch (error) {
+      console.error("Refresh failed:", error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    // 1. Initial Data Sync
+    syncDataFromStorage();
+
+    // 2. Handle Theme
+    const savedTheme = localStorage.getItem("app_theme");
+    setIsDarkMode(savedTheme !== "light");
+
+    // 3. Dynamic Clock
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+
+    // 4. Pull to Refresh Initialization
+    const ptr = PullToRefresh.init({
+      mainElement: "body",
+      onRefresh() {
+        return handleRefresh();
+      },
+      distMax: 80,
+      distThreshold: 60,
+      instructionsPullToRefresh: "Pull down to refresh",
+      instructionsReleaseToRefresh: "Release to update balance",
+      instructionsRefreshing: "Updating...",
+    });
+
+    return () => {
+      clearInterval(timer);
+      ptr.destroy(); // Cleanup on unmount
+    };
+  }, [syncDataFromStorage]);
 
   const toggleTheme = async () => {
     const newMode = !isDarkMode;
@@ -130,11 +194,10 @@ export default function FintechDashboard() {
           <Avatar className="h-12 w-12 border-2 border-emerald-500">
             <AvatarImage src="/avatar.png" />
             <AvatarFallback className="bg-emerald-500 text-white font-bold">
-              {userData.sFname.substring(0, 2).toUpperCase()}
+              {userData.displayName.substring(0, 2).toUpperCase()}
             </AvatarFallback>
           </Avatar>
 
-          {/* Stunning Toggle Switch */}
           <button
             onClick={toggleTheme}
             className={`relative w-14 h-7 rounded-full transition-all duration-300 flex items-center px-1 ${
@@ -164,7 +227,11 @@ export default function FintechDashboard() {
               : "bg-white shadow-sm text-emerald-600"
           }`}
         >
-          <Clock className="w-5 h-5" />
+          {isRefreshing ? (
+            <RefreshCw className="w-5 h-5 animate-spin" />
+          ) : (
+            <Clock className="w-5 h-5" />
+          )}
         </div>
       </header>
 
@@ -187,7 +254,7 @@ export default function FintechDashboard() {
         <h1 className="text-3xl font-bold tracking-tight">
           {getGreeting()},
           <br />
-          <span className="text-emerald-500">{userData.sFname}!</span>
+          <span className="text-emerald-500">{userData.displayName}!</span>
         </h1>
       </div>
 
@@ -222,6 +289,7 @@ export default function FintechDashboard() {
               <Button
                 variant="ghost"
                 size="icon"
+                onClick={handleRefresh}
                 className={`rounded-full h-9 w-9 ${
                   isDarkMode
                     ? "bg-gray-800/50 text-white"
@@ -316,7 +384,6 @@ export default function FintechDashboard() {
           />
         </Link>
 
-        {/* Suggest Product Section */}
         <div className="col-span-3 flex flex-col items-center mt-6 gap-4">
           <p
             className={`text-[11px] uppercase tracking-widest font-bold ${
@@ -337,7 +404,6 @@ export default function FintechDashboard() {
           </Button>
         </div>
 
-        {/* Floating Chat Button */}
         <div className="absolute right-4 -bottom-6 bg-emerald-500 p-4 rounded-2xl shadow-lg shadow-emerald-500/20 active:scale-90 transition-transform cursor-pointer">
           <MessageSquare className="w-6 h-6 text-white" />
         </div>
@@ -352,11 +418,11 @@ export default function FintechDashboard() {
         }`}
       >
         <NavItem active label="Home" icon={<Home />} isDark={isDarkMode} />
-        <Link href="/nin">
-          <NavItem label="Nin" icon={<Wallet />} isDark={isDarkMode} />
+        <Link href="/support">
+          <NavItem label="Support" icon={<LifeBuoy />} isDark={isDarkMode} />
         </Link>
-        <Link href={"/bvn"}>
-          <NavItem label="Bvn" icon={<CreditCard />} isDark={isDarkMode} />
+        <Link href={"/pricing"}>
+          <NavItem label="Pricing" icon={<Tag />} isDark={isDarkMode} />
         </Link>
         <Link href={"/profile"}>
           <NavItem label="Me" icon={<User />} isDark={isDarkMode} />

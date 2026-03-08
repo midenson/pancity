@@ -1,11 +1,11 @@
 "use client";
-//49ad460295
+
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, ArrowUpRight } from "lucide-react";
+import Link from "next/link";
 
 const Login = () => {
-  // 1. Initialize with empty strings to prevent the "uncontrolled" warning
   const [formData, setFormData] = useState({ phone: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -27,14 +27,7 @@ const Login = () => {
         }
       );
 
-      // 2. Capture as text first
       const rawText = await response.text();
-
-      /**
-       * FRONTEND FIX:
-       * .trim() removes leading/trailing spaces.
-       * .replace(/^\uFEFF/, "") removes the invisible BOM character ghost.
-       */
       const cleanText = rawText.trim().replace(/^\uFEFF/, "");
 
       let result;
@@ -42,35 +35,41 @@ const Login = () => {
         result = JSON.parse(cleanText);
       } catch (jsonErr) {
         console.error("Parsing failed. Raw response was:", rawText);
-        setError("Server returned an invalid format. Please contact support.");
+        setError("Server returned an invalid format.");
         setLoading(false);
         return;
       }
 
       if (result.status === "success") {
         /**
-         * 3. SYNC STORAGE KEY:
-         * We save the object under 'user_session' so the Airtime page
-         * can find it easily.
+         * FRONTEND FIX:
+         * We store the data in the exact keys the dashboard components look for.
          */
-        const sessionData = {
-          token: result.token || "",
-          user_data: result.user_data || {},
-        };
+        const token = result.token || "";
+        const userData = result.user_data || {};
 
+        // 1. Store as a combined session object
+        const sessionData = {
+          token: token,
+          user_data: userData,
+        };
         localStorage.setItem("user_session", JSON.stringify(sessionData));
 
-        // Backward compatibility key
-        localStorage.setItem("userToken", result.token || "");
+        // 2. Store as individual keys (This fixes your {token: "", user_data: {}} issue)
+        localStorage.setItem("token", token);
+        localStorage.setItem("user_data", JSON.stringify(userData));
 
-        // 4. Navigate
+        // 3. Backward compatibility key
+        localStorage.setItem("userToken", token);
+
+        // Navigate to dashboard
         router.push("/dashboard");
       } else {
         setError(result.msg || "Invalid login credentials");
       }
     } catch (err) {
       console.error("Fetch Error:", err);
-      setError("Connection failed. Please check your internet or server CORS.");
+      setError("Connection failed. Please check your internet.");
     } finally {
       setLoading(false);
     }
@@ -120,7 +119,6 @@ const Login = () => {
 
         {/* Form Container */}
         <form className="w-full space-y-5" onSubmit={handleLogin}>
-          {/* Phone Input */}
           <div className="space-y-1.5">
             <label className="block text-xs text-gray-500 font-medium ml-1">
               Your phone
@@ -129,7 +127,7 @@ const Login = () => {
               <input
                 type="tel"
                 required
-                value={formData.phone || ""}
+                value={formData.phone}
                 onChange={(e) =>
                   setFormData({ ...formData, phone: e.target.value })
                 }
@@ -139,7 +137,6 @@ const Login = () => {
             </div>
           </div>
 
-          {/* Password Input */}
           <div className="space-y-1.5">
             <label className="block text-xs text-gray-500 font-medium ml-1">
               Your password
@@ -148,7 +145,7 @@ const Login = () => {
               <input
                 type={showPassword ? "text" : "password"}
                 required
-                value={formData.password || ""}
+                value={formData.password}
                 onChange={(e) =>
                   setFormData({ ...formData, password: e.target.value })
                 }
@@ -165,7 +162,6 @@ const Login = () => {
             </div>
           </div>
 
-          {/* Error Display */}
           {error && (
             <div className="bg-red-50 p-3 rounded-md border border-red-100">
               <p className="text-red-600 text-xs font-medium text-center">
@@ -174,7 +170,6 @@ const Login = () => {
             </div>
           )}
 
-          {/* Submit Button */}
           <button
             type="submit"
             disabled={loading}
@@ -189,7 +184,6 @@ const Login = () => {
             )}
           </button>
 
-          {/* Footer Options */}
           <div className="flex items-center justify-between pt-2">
             <label className="flex items-center gap-2 cursor-pointer group">
               <div className="w-4 h-4 rounded-sm border border-gray-300 flex items-center justify-center group-hover:border-gray-400 transition-colors">
@@ -215,7 +209,7 @@ const Login = () => {
               type="button"
               className="text-xs text-gray-600 underline decoration-gray-400 underline-offset-4 hover:text-black transition-colors"
             >
-              Forgot your password?
+              <Link href={"/forgot"}>Forgot your password?</Link>
             </button>
           </div>
         </form>

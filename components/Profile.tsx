@@ -22,8 +22,8 @@ export default function ProfilePage() {
     full_name: "Loading...",
     username: "...",
     phone: "...",
-    balance: "...",
-    joined: "...",
+    balance: "0.00",
+    internalId: "...",
   });
 
   useEffect(() => {
@@ -34,22 +34,34 @@ export default function ProfilePage() {
     // 2. Data Fetch from Local Storage
     const raw = localStorage.getItem("user_session");
     if (raw) {
-      const session = JSON.parse(raw);
-      const data = session.user_data;
-      setUserData({
-        full_name: `${data.fname} ${data.lname}` || data.name || "N/A",
-        username: `${data.fname}_${data.lname}` || "user_unknown",
-        phone: data.phone || "No phone number linked",
-        balance: data.balance,
-        joined: data.created_at || "Member",
-      });
+      try {
+        const session = JSON.parse(raw);
+        const data = session.user_data;
+
+        setUserData({
+          full_name: data.full_name || "User Account",
+          username: data.full_name
+            ? data.full_name.replace(/\s+/g, "_").toLowerCase()
+            : "user",
+          phone: data.phone || "No phone linked",
+          balance: parseFloat(data.balance || 0).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+          }),
+          internalId: data.userid || "N/A",
+        });
+      } catch (e) {
+        console.error("Error parsing session data", e);
+      }
     }
   }, []);
 
   const handleLogout = async () => {
     await Haptics.impact({ style: ImpactStyle.Heavy });
-    // Clear storage and redirect
     localStorage.removeItem("user_session");
+    localStorage.removeItem("token");
+    localStorage.removeItem("user_data");
+    localStorage.removeItem("userToken");
+
     await Haptics.notification({ type: NotificationType.Success });
     router.push("/");
   };
@@ -78,9 +90,7 @@ export default function ProfilePage() {
         <Icon size={20} />
       </div>
       <div>
-        <p
-          className={`text-[10px] font-black uppercase tracking-widest opacity-40 mb-0.5`}
-        >
+        <p className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-0.5">
           {label}
         </p>
         <p className="text-sm font-black tracking-tight">{value}</p>
@@ -89,8 +99,9 @@ export default function ProfilePage() {
   );
 
   return (
+    /* Fixed: Added w-full and ensured min-h-screen covers absolute viewport height */
     <div
-      className={`min-h-screen pt-safe pb-10 font-sans transition-colors duration-500 ${
+      className={`w-full min-h-screen pt-safe pb-10 font-sans transition-colors duration-500 overflow-x-hidden ${
         isDarkMode ? "bg-[#0f0a14] text-white" : "bg-slate-50 text-slate-900"
       }`}
     >
@@ -111,7 +122,7 @@ export default function ProfilePage() {
         <h2 className="text-[10px] font-black uppercase tracking-[0.3em] opacity-40">
           Identity Vault
         </h2>
-        <div className="h-10 w-10" /> {/* Spacer */}
+        <div className="h-10 w-10" />
       </header>
 
       {/* Hero Section */}
@@ -124,7 +135,7 @@ export default function ProfilePage() {
                 : "bg-slate-900 text-white"
             }`}
           >
-            {userData.full_name.charAt(0)}
+            {userData.full_name.charAt(0).toUpperCase()}
           </div>
           <div className="absolute -bottom-1 -right-1 h-8 w-8 bg-emerald-500 rounded-full border-4 border-[#0f0a14] flex items-center justify-center">
             <ShieldCheck size={14} className="text-white" />
@@ -143,23 +154,27 @@ export default function ProfilePage() {
       </div>
 
       {/* Information Grid */}
-      <div className="px-5 space-y-3 mb-10">
-        <ProfileItem icon={AtSign} label="Username" value={userData.username} />
-        <ProfileItem icon={Mail} label="Phone Number" value={userData.phone} />
+      <div className="px-5 space-y-3 mb-10 max-w-2xl mx-auto">
+        <ProfileItem
+          icon={AtSign}
+          label="Identity Handle"
+          value={`@${userData.username}`}
+        />
+        <ProfileItem icon={Mail} label="Phone Line" value={userData.phone} />
         <ProfileItem
           icon={Wallet}
-          label="Account Balance"
-          value={userData.balance}
+          label="Financial Balance"
+          value={`₦${userData.balance}`}
         />
-        {/* <ProfileItem
+        <ProfileItem
           icon={Settings2}
           label="Account Status"
-          value="Verified API Merchant"
-        /> */}
+          value="Verified Member"
+        />
       </div>
 
       {/* Actions */}
-      <div className="px-5 space-y-4">
+      <div className="px-5 space-y-4 max-w-2xl mx-auto">
         <div
           className={`p-6 rounded-[2.5rem] border ${
             isDarkMode
@@ -184,7 +199,7 @@ export default function ProfilePage() {
         </div>
 
         <p className="text-center text-[9px] font-black uppercase tracking-[0.2em] opacity-20">
-          Internal ID: {Math.random().toString(36).substring(7).toUpperCase()}
+          Internal ID: {userData.internalId}
         </p>
       </div>
     </div>
