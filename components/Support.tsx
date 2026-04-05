@@ -217,7 +217,7 @@ export default function SupportPage() {
               placeholder="Type your message here..."
               required
               value={formData.message}
-              onChange={(e) =>
+              onChange={(e: any) =>
                 setFormData({ ...formData, message: e.target.value })
               }
               className="border-none bg-transparent p-0 focus-visible:ring-0 min-h-[150px] resize-none font-medium leading-relaxed"

@@ -4,9 +4,9 @@ import BuyDataPage from "@/components/BuyData";
 import BuyElectricityPage from "@/components/BuyElectricity";
 import FintechDashboard from "@/components/Homepage";
 import Login from "@/components/Login";
-import ProfilePage from "@/components/Profile";
 import FundAccountPage from "@/components/Topup";
 import TransactionList from "@/components/TransactionsList";
+import RatelDataPage from "@/components/ratel";
 import Image from "next/image";
 
 export default function Home() {
@@ -20,7 +20,7 @@ export default function Home() {
       {/* <BuyElectricityPage /> */}
       {/* <BuyCablePage /> */}
       {/* <Login /> */}
-      <ProfilePage />
+      <RatelDataPage />
     </div>
   );
 }

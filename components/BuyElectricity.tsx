@@ -27,23 +27,57 @@ export default function BuyElectricityPage() {
   const [selectedProvider, setSelectedProvider] = useState({
     name: "Ikeja Electric",
     id: "1",
-    type: "Postpaid",
+    type: "Prepaid",
   });
 
-  const quickAmounts = ["500", "1000", "2000", "5000", "10000", "20000"];
+  const quickAmounts = ["1000", "2000", "5000", "10000", "20000", "50000"];
+
+  const getHandshake = () => {
+    try {
+      const now = new Date();
+      const formatter = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Africa/Lagos",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+
+      const parts = formatter.formatToParts(now);
+      const y = parts.find((p) => p.type === "year")?.value;
+      const m = parts.find((p) => p.type === "month")?.value;
+      const d = parts.find((p) => p.type === "day")?.value;
+
+      return `Token ${y}${m}${d}`;
+    } catch (e) {
+      const d = new Date();
+      const dateStr = d.toISOString().split("T")[0].replace(/-/g, "");
+      return `Token ${dateStr}`;
+    }
+  };
 
   useEffect(() => {
-    // Sync Theme
     const savedTheme = localStorage.getItem("app_theme");
     setIsDarkMode(savedTheme !== "light");
 
-    // Fetch Balance
     const raw = localStorage.getItem("user_session");
     if (raw) {
       const session = JSON.parse(raw);
       setBalance(session.user_data?.balance || "0.00");
     }
   }, []);
+
+  const getSessionData = () => {
+    const raw = localStorage.getItem("user_session");
+    if (!raw) return { phone: "" };
+    try {
+      const session = JSON.parse(raw);
+      return {
+        phone: session.user_data?.phone || session.phone || "",
+      };
+    } catch (e) {
+      return { phone: "" };
+    }
+  };
 
   const handleVerify = async () => {
     if (!meterNumber || meterNumber.length < 5) {
@@ -55,47 +89,52 @@ export default function BuyElectricityPage() {
     setMessage(null);
     setVerifiedName("");
 
-    try {
-      const raw = localStorage.getItem("user_session");
-      const session = JSON.parse(raw || "{}");
-      const userToken = session.token;
+    const { phone } = getSessionData();
+    const handshake = getHandshake();
 
+    try {
       const response = await fetch(
         "https://pancity.com.ng/app/api/electricity/verify/index.php",
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${userToken}`,
+            Token: handshake,
+            Authorization: handshake,
           },
           body: JSON.stringify({
-            meternumber: meterNumber,
-            electricity: selectedProvider.id,
+            token: handshake,
+            meternumber: meterNumber.trim(),
+            provider: selectedProvider.id,
             metertype: selectedProvider.type,
+            user_phone: phone,
           }),
         }
       );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server Error: ${response.status}`);
+      }
 
       const result = await response.json();
 
       if (result.status === "success") {
         setIsVerified(true);
-        setVerifiedName(
-          result.name || result.desc || result.customer_name || "Verified"
-        );
+        setVerifiedName(result.name || "Verified Customer");
         await Haptics.notification({ type: NotificationType.Success });
       } else {
         setIsVerified(false);
         setMessage({
           type: "error",
-          text: result.msg || "Meter Verification Failed",
+          text: result.msg || "Verification Failed",
         });
         await Haptics.notification({ type: NotificationType.Error });
       }
     } catch (err) {
       setMessage({
         type: "error",
-        text: "Connection error during verification.",
+        text: "Meter verification failed. Try again.",
       });
     } finally {
       setIsVerifying(false);
@@ -104,8 +143,8 @@ export default function BuyElectricityPage() {
 
   const handlePurchase = async () => {
     if (isLoading || !isVerified) return;
-    if (!amount || parseFloat(amount) <= 0) {
-      setMessage({ type: "error", text: "Please provide a valid amount" });
+    if (!amount || parseFloat(amount) < 1000) {
+      setMessage({ type: "error", text: "Minimum purchase is ₦1,000" });
       return;
     }
 
@@ -113,24 +152,27 @@ export default function BuyElectricityPage() {
     setMessage(null);
     await Haptics.impact({ style: ImpactStyle.Heavy });
 
-    try {
-      const raw = localStorage.getItem("user_session");
-      const session = JSON.parse(raw || "{}");
-      const userToken = session.token;
+    const { phone } = getSessionData();
+    const handshake = getHandshake();
 
+    try {
       const response = await fetch(
         "https://pancity.com.ng/app/api/electricity/index.php",
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${userToken}`,
+            Token: handshake,
+            Authorization: handshake,
           },
           body: JSON.stringify({
-            electricity: selectedProvider.id,
+            token: handshake,
+            provider: selectedProvider.id,
             amount: amount,
             meternumber: meterNumber,
             metertype: selectedProvider.type,
+            user_phone: phone,
+            ref: `ELEC_${Date.now()}`,
           }),
         }
       );
@@ -143,16 +185,19 @@ export default function BuyElectricityPage() {
         );
         setBalance(newBalance);
 
-        const updatedSession = { ...session };
-        if (updatedSession.user_data) {
-          updatedSession.user_data.balance = newBalance;
-          localStorage.setItem("user_session", JSON.stringify(updatedSession));
+        const raw = localStorage.getItem("user_session");
+        if (raw) {
+          const session = JSON.parse(raw);
+          if (session.user_data) {
+            session.user_data.balance = newBalance;
+            localStorage.setItem("user_session", JSON.stringify(session));
+          }
         }
 
         setMessage({
           type: "success",
-          text: `Payment Successful!`,
-          token: result.token,
+          text: `Purchase Successful!`,
+          token: result.token || result.msg || "Token Pending",
         });
         await Haptics.notification({ type: NotificationType.Success });
       } else {
@@ -160,7 +205,10 @@ export default function BuyElectricityPage() {
         await Haptics.notification({ type: NotificationType.Error });
       }
     } catch (err) {
-      setMessage({ type: "error", text: "A connection error occurred." });
+      setMessage({
+        type: "error",
+        text: "Transaction failed. Please check connection.",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -207,7 +255,7 @@ export default function BuyElectricityPage() {
           >
             Balance
           </span>
-          <span className="font-black text-sm">
+          <span className="font-black text-sm text-emerald-500">
             ₦{parseFloat(balance).toLocaleString()}
           </span>
         </div>
@@ -228,7 +276,6 @@ export default function BuyElectricityPage() {
         Pay {selectedProvider.name} ({selectedProvider.type}) instantly.
       </div>
 
-      {/* Meter Number Section */}
       <div className="px-5 mb-6">
         <div
           className={`rounded-[2rem] p-7 transition-all border ${
@@ -263,11 +310,7 @@ export default function BuyElectricityPage() {
                 onClick={handleVerify}
                 disabled={isVerifying || !meterNumber}
                 size="sm"
-                className={`rounded-full px-4 h-8 font-bold text-[10px] uppercase tracking-wider ${
-                  isDarkMode
-                    ? "bg-emerald-500 text-white"
-                    : "bg-slate-900 text-white"
-                }`}
+                className="rounded-full px-4 h-8 font-bold text-[10px] uppercase tracking-wider bg-emerald-500 text-white hover:bg-emerald-600"
               >
                 {isVerifying ? (
                   <Loader2 className="animate-spin" size={14} />
@@ -288,7 +331,6 @@ export default function BuyElectricityPage() {
         </div>
       </div>
 
-      {/* Quick Amounts */}
       <div className="px-5 mb-6 grid grid-cols-3 gap-3">
         {quickAmounts.map((amt) => (
           <Button
@@ -306,7 +348,6 @@ export default function BuyElectricityPage() {
         ))}
       </div>
 
-      {/* Amount Input */}
       <div className="px-5 mb-6">
         <div
           className={`rounded-[2rem] p-7 border transition-all ${
@@ -357,7 +398,7 @@ export default function BuyElectricityPage() {
               <p className="text-[10px] text-zinc-500 uppercase font-black tracking-widest mb-1">
                 Token / PIN
               </p>
-              <p className="text-2xl font-black tracking-[0.2em] text-emerald-500">
+              <p className="text-2xl font-black tracking-[0.2em] text-emerald-500 break-all">
                 {message.token}
               </p>
             </div>

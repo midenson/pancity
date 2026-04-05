@@ -1,5 +1,6 @@
 "use client";
-import React, { useState, useEffect } from "react";
+
+import React, { useState, useEffect, useMemo } from "react";
 import { ChevronLeft, Loader2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,122 +8,18 @@ import { Haptics, ImpactStyle, NotificationType } from "@capacitor/haptics";
 import { useRouter } from "next/navigation";
 import { ProviderModal } from "./CableProvider";
 
-const CABLE_PLANS: Record<string, any[]> = {
-  "2": [
-    {
-      id: "dstv-padi",
-      title: "DStv Padi",
-      price: "4,400",
-      duration: "1 Month",
-    },
-    {
-      id: "dstv-yanga",
-      title: "DStv Yanga",
-      price: "6,000",
-      duration: "1 Month",
-    },
-    {
-      id: "dstv-confam",
-      title: "DStv Confam",
-      price: "11,000",
-      duration: "1 Month",
-    },
-    {
-      id: "dstv-compact",
-      title: "DStv Compact",
-      price: "19,000",
-      duration: "1 Month",
-    },
-    {
-      id: "dstv-compact-plus",
-      title: "DStv Compact Plus",
-      price: "29,500",
-      duration: "1 Month",
-    },
-    {
-      id: "dstv-premium",
-      title: "DStv Premium",
-      price: "44,000",
-      duration: "1 Month",
-    },
-  ],
-  "1": [
-    {
-      id: "176",
-      title: "GOtv Smallie",
-      price: "1,900",
-      duration: "1 Month",
-    },
-    {
-      id: "177",
-      title: "GOtv Jinja",
-      price: "3,300",
-      duration: "1 Month",
-    },
-    {
-      id: "178",
-      title: "GOtv Jolli",
-      price: "4,850",
-      duration: "1 Month",
-    },
-    { id: "179", title: "GOtv Max", price: "7,200", duration: "1 Month" },
-    {
-      id: "180",
-      title: "GOtv Supa",
-      price: "9,600",
-      duration: "1 Month",
-    },
-    {
-      id: "gotv-supa-plus",
-      title: "GOtv Supa Plus",
-      price: "15,700",
-      duration: "1 Month",
-    },
-  ],
-  "3": [
-    {
-      id: "nova",
-      title: "StarTimes Nova",
-      price: "1,500",
-      duration: "1 Month",
-    },
-    {
-      id: "basic",
-      title: "StarTimes Basic",
-      price: "3,300",
-      duration: "1 Month",
-    },
-    {
-      id: "smart",
-      title: "StarTimes Smart",
-      price: "4,500",
-      duration: "1 Month",
-    },
-    {
-      id: "classic",
-      title: "StarTimes Classic",
-      price: "5,000",
-      duration: "1 Month",
-    },
-    {
-      id: "super",
-      title: "StarTimes Super",
-      price: "8,500",
-      duration: "1 Month",
-    },
-  ],
-};
-
 export default function BuyCablePage() {
   const router = useRouter();
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [smartcard, setSmartcard] = useState("");
   const [balance, setBalance] = useState("0.00");
   const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingPlans, setIsFetchingPlans] = useState(true);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [customerName, setCustomerName] = useState("");
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
+  const [allPlans, setAllPlans] = useState<any[]>([]);
 
   const [selectedProvider, setSelectedProvider] = useState({
     name: "DStv",
@@ -135,7 +32,49 @@ export default function BuyCablePage() {
     text: string;
   } | null>(null);
 
-  const availablePlans = CABLE_PLANS[selectedProvider.id] || [];
+  // FIXED: Forces date to Africa/Lagos (UTC+1) to match backend
+  const getHandshake = () => {
+    const lagosTime = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Africa/Lagos",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+
+    const [d, m, y] = lagosTime.split("/");
+    return `Token ${y}${m}${d}`;
+  };
+
+  // FETCH PLANS FROM DATABASE
+  useEffect(() => {
+    const fetchPlans = async () => {
+      try {
+        const response = await fetch(
+          "https://pancity.com.ng/app/api/cabletv/plans/index.php",
+          {
+            headers: { Authorization: getHandshake() },
+          }
+        );
+        const result = await response.json();
+        if (result.status === "success") {
+          setAllPlans(result.plans || []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch cable plans", err);
+      } finally {
+        setIsFetchingPlans(false);
+      }
+    };
+
+    fetchPlans();
+  }, []);
+
+  // Filter plans based on selected provider ID (1, 2, or 3)
+  const availablePlans = useMemo(() => {
+    return allPlans.filter(
+      (plan) => String(plan.cableprovider) === selectedProvider.id
+    );
+  }, [allPlans, selectedProvider.id]);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("app_theme");
@@ -156,17 +95,13 @@ export default function BuyCablePage() {
     setIsVerifying(true);
     setMessage(null);
     try {
-      const raw = localStorage.getItem("user_session");
-      if (!raw) throw new Error("No session found");
-      const session = JSON.parse(raw);
-
       const response = await fetch(
         "https://pancity.com.ng/app/api/cabletv/verify/index.php",
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Token ${session.token}`,
+            Authorization: getHandshake(),
           },
           body: JSON.stringify({
             cablename: selectedProvider.id,
@@ -175,12 +110,23 @@ export default function BuyCablePage() {
         }
       );
 
-      const result = await response.json();
+      // 1. Get response as raw text to handle PHP warnings/HTML prepended
+      const rawText = await response.text();
+
+      // 2. Locate the first '{' to find where the JSON actually begins
+      const jsonStartIndex = rawText.indexOf("{");
+
+      if (jsonStartIndex === -1) {
+        throw new Error("No valid JSON found in server response");
+      }
+
+      // 3. Extract and parse only the JSON part
+      const cleanJson = rawText.substring(jsonStartIndex);
+      const result = JSON.parse(cleanJson);
+
       if (result.status === "success") {
         setIsVerified(true);
-        setCustomerName(
-          result.name || result.Customer_Name || "Verified Customer"
-        );
+        setCustomerName(result.name || "Verified Customer");
         await Haptics.notification({ type: NotificationType.Success });
       } else {
         setIsVerified(false);
@@ -190,10 +136,11 @@ export default function BuyCablePage() {
         });
         await Haptics.notification({ type: NotificationType.Error });
       }
-    } catch (err) {
+    } catch (err: any) {
+      console.error("Verification error bypass:", err);
       setMessage({
         type: "error",
-        text: "Session expired or connection error",
+        text: "Connection error. Please try again.",
       });
     } finally {
       setIsVerifying(false);
@@ -207,7 +154,7 @@ export default function BuyCablePage() {
     await Haptics.impact({ style: ImpactStyle.Heavy });
     try {
       const raw = localStorage.getItem("user_session");
-      if (!raw) throw new Error("No session found");
+      if (!raw) throw new Error("No session");
       const session = JSON.parse(raw);
 
       const response = await fetch(
@@ -216,12 +163,14 @@ export default function BuyCablePage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Token ${session.token}`,
+            Authorization: getHandshake(),
           },
           body: JSON.stringify({
             cablename: selectedProvider.id,
-            cableplan: selectedPlan.id,
+            cableplan: selectedPlan.planid, // Using planid from DB
             iucnumber: smartcard,
+            user_phone: session.user_data?.phone || "",
+            amount: selectedPlan.price.toString().replace(/,/g, ""),
             ref: `CAB_${Date.now()}`,
           }),
         }
@@ -229,21 +178,23 @@ export default function BuyCablePage() {
 
       const result = await response.json();
       if (result.status === "success") {
-        const planPrice = parseFloat(selectedPlan.price.replace(/,/g, ""));
+        const planPrice = parseFloat(
+          selectedPlan.price.toString().replace(/,/g, "")
+        );
         const newBal = (parseFloat(balance) - planPrice).toFixed(2);
         setBalance(newBal);
+
         session.user_data.balance = newBal;
         localStorage.setItem("user_session", JSON.stringify(session));
+
         setMessage({ type: "success", text: "Subscription Successful!" });
         await Haptics.notification({ type: NotificationType.Success });
       } else {
         setMessage({ type: "error", text: result.msg || "Transaction Failed" });
+        await Haptics.notification({ type: NotificationType.Error });
       }
     } catch (err) {
-      setMessage({
-        type: "error",
-        text: "Session expired or connection error",
-      });
+      setMessage({ type: "error", text: "Connection error" });
     } finally {
       setIsLoading(false);
     }
@@ -251,7 +202,7 @@ export default function BuyCablePage() {
 
   return (
     <div
-      className={`min-h-screen transition-colors duration-500 pt-safe pb-10 font-sans ${
+      className={`min-h-screen pt-safe pb-10 font-sans ${
         isDarkMode ? "bg-[#0f0a14] text-white" : "bg-slate-50 text-slate-900"
       }`}
     >
@@ -285,8 +236,11 @@ export default function BuyCablePage() {
           >
             Balance
           </span>
-          <span className="font-black text-sm">
-            ₦{parseFloat(balance).toLocaleString()}
+          <span className="font-black text-sm text-emerald-500">
+            ₦
+            {parseFloat(balance).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+            })}
           </span>
         </div>
       </header>
@@ -325,13 +279,14 @@ export default function BuyCablePage() {
             }`}
           >
             <Input
+              type="tel"
               value={smartcard}
               onChange={(e) => {
-                setSmartcard(e.target.value);
+                setSmartcard(e.target.value.replace(/\D/g, ""));
                 setIsVerified(false);
               }}
               placeholder="0000000000"
-              className="border-none bg-transparent p-0 text-xl font-black focus-visible:ring-0 placeholder:text-zinc-700"
+              className="border-none bg-transparent p-0 text-xl font-black focus-visible:ring-0 placeholder:text-zinc-800"
             />
             {isVerified ? (
               <CheckCircle2 size={22} className="text-emerald-500" />
@@ -340,11 +295,7 @@ export default function BuyCablePage() {
                 onClick={handleVerify}
                 disabled={isVerifying || !smartcard}
                 size="sm"
-                className={`rounded-full px-4 h-8 font-bold text-[10px] uppercase tracking-wider ${
-                  isDarkMode
-                    ? "bg-emerald-500 text-white"
-                    : "bg-slate-900 text-white"
-                }`}
+                className="rounded-full px-4 h-8 font-bold text-[10px] uppercase tracking-wider bg-emerald-500 text-white hover:bg-emerald-600"
               >
                 {isVerifying ? (
                   <Loader2 className="animate-spin" size={14} />
@@ -355,9 +306,9 @@ export default function BuyCablePage() {
             )}
           </div>
           {isVerified && (
-            <div className="mt-4 flex items-center gap-2 text-emerald-500 bg-emerald-500/5 p-3 rounded-xl animate-in fade-in zoom-in duration-300">
-              <span className="text-[10px] font-black uppercase tracking-tighter opacity-70">
-                Name:
+            <div className="mt-4 flex flex-col gap-1 text-emerald-500 bg-emerald-500/5 p-4 rounded-xl animate-in fade-in zoom-in duration-300">
+              <span className="text-[9px] font-black uppercase tracking-widest opacity-60">
+                Customer Name
               </span>
               <span className="text-sm font-black">{customerName}</span>
             </div>
@@ -366,7 +317,7 @@ export default function BuyCablePage() {
       </div>
 
       <div className="px-5 mb-4 flex items-center justify-between">
-        <h3 className="text-sm font-black uppercase tracking-widest opacity-80">
+        <h3 className="text-sm font-black uppercase tracking-widest opacity-50">
           Choose Plan
         </h3>
         <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest bg-zinc-500/10 px-2 py-1 rounded-md">
@@ -375,39 +326,47 @@ export default function BuyCablePage() {
       </div>
 
       <div className="px-5 grid grid-cols-2 gap-4 mb-8">
-        {availablePlans.map((plan) => (
-          <div
-            key={plan.id}
-            onClick={() => setSelectedPlan(plan)}
-            className={`p-5 rounded-[2rem] border transition-all h-36 flex flex-col justify-between cursor-pointer active:scale-95 duration-300 ${
-              selectedPlan?.id === plan.id
-                ? "border-emerald-500 bg-emerald-500/5 ring-4 ring-emerald-500/10"
-                : isDarkMode
-                ? "bg-[#1c1425] border-white/5 hover:border-zinc-700"
-                : "bg-white border-slate-100 shadow-sm"
-            }`}
-          >
-            <div>
-              <h4
-                className={`font-bold text-xs line-clamp-2 leading-tight ${
-                  isDarkMode ? "text-zinc-100" : "text-slate-800"
-                }`}
-              >
-                {plan.title}
-              </h4>
-              <span className="text-[9px] font-black text-emerald-500 uppercase tracking-tighter">
-                {plan.duration}
-              </span>
-            </div>
-            <p className="font-black text-xl tracking-tighter">₦{plan.price}</p>
+        {isFetchingPlans ? (
+          <div className="col-span-2 flex justify-center py-10">
+            <Loader2 className="animate-spin text-emerald-500" />
           </div>
-        ))}
+        ) : (
+          availablePlans.map((plan) => (
+            <div
+              key={plan.cpId || plan.planid}
+              onClick={() => setSelectedPlan(plan)}
+              className={`p-5 rounded-[2rem] border transition-all h-36 flex flex-col justify-between cursor-pointer active:scale-95 duration-300 ${
+                selectedPlan?.planid === plan.planid
+                  ? "border-emerald-500 bg-emerald-500/5 ring-4 ring-emerald-500/10"
+                  : isDarkMode
+                  ? "bg-[#1c1425] border-white/5"
+                  : "bg-white border-slate-100"
+              }`}
+            >
+              <div>
+                <h4
+                  className={`font-bold text-xs line-clamp-2 leading-tight ${
+                    isDarkMode ? "text-zinc-100" : "text-slate-800"
+                  }`}
+                >
+                  {plan.name}
+                </h4>
+                <span className="text-[9px] font-black text-emerald-500 uppercase tracking-tighter">
+                  {plan.day} Days
+                </span>
+              </div>
+              <p className="font-black text-xl tracking-tighter">
+                ₦{plan.price}
+              </p>
+            </div>
+          ))
+        )}
       </div>
 
       <div className="px-5 mt-auto">
         {message && (
           <div
-            className={`mb-4 p-5 rounded-2xl text-[12px] font-bold text-center border animate-in slide-in-from-bottom-2 ${
+            className={`mb-4 p-5 rounded-2xl text-[12px] font-bold text-center border ${
               message.type === "success"
                 ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
                 : "bg-red-500/10 text-red-500 border-red-500/20"
@@ -419,14 +378,16 @@ export default function BuyCablePage() {
         <Button
           onClick={handlePurchase}
           disabled={isLoading || !isVerified || !selectedPlan}
-          className="w-full h-16 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-emerald-500/20 active:scale-[0.97] transition-all disabled:opacity-30 disabled:bg-zinc-800"
+          className="w-full h-16 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-emerald-500/20 disabled:opacity-30 transition-all"
         >
           {isLoading ? (
             <Loader2 className="animate-spin" />
           ) : !isVerified ? (
             "Verify to Continue"
+          ) : !selectedPlan ? (
+            "Select a Plan"
           ) : (
-            `Pay ₦${selectedPlan?.price}`
+            `Pay ₦${selectedPlan.price}`
           )}
         </Button>
       </div>

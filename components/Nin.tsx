@@ -62,7 +62,11 @@ export default function VerifyNinPage() {
 
     try {
       const raw = localStorage.getItem("user_session");
-      const session = JSON.parse(raw || "{}");
+      if (!raw) throw new Error("No session found");
+      const session = JSON.parse(raw);
+
+      // Generate security handshake token (YYYYMMDD)
+      const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 
       const response = await fetch(
         "https://pancity.com.ng/app/api/nin/index.php",
@@ -70,27 +74,26 @@ export default function VerifyNinPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Token ${session.token}`,
+            Authorization: `Token ${today}`,
           },
           body: JSON.stringify({
             phone: ninNumber,
+            user_phone: session.user_data?.phone || "", // Required for backend identification
             slip: selectedSlip.id,
-            ref: `NIN_${Date.now()}`,
+            ref: `NIN_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
           }),
         }
       );
 
       const result = await response.json();
 
-      if (result.status === "success") {
+      if (response.ok && result.status === "success") {
         const updatedBalance = (
           parseFloat(balance) - selectedSlip.price
         ).toFixed(2);
-        if (raw) {
-          const sessionData = JSON.parse(raw);
-          sessionData.user_data.balance = updatedBalance;
-          localStorage.setItem("user_session", JSON.stringify(sessionData));
-        }
+        session.user_data.balance = updatedBalance;
+        localStorage.setItem("user_session", JSON.stringify(session));
+
         setBalance(updatedBalance);
         setMessage({ type: "success", text: "NIN Verification Successful!" });
         await Haptics.notification({ type: NotificationType.Success });
@@ -142,7 +145,10 @@ export default function VerifyNinPage() {
             Balance
           </span>
           <span className="font-black text-sm text-emerald-500">
-            ₦{parseFloat(balance).toLocaleString()}
+            ₦
+            {parseFloat(balance).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+            })}
           </span>
         </div>
       </header>
@@ -158,7 +164,6 @@ export default function VerifyNinPage() {
         </p>
       </div>
 
-      {/* Input Field */}
       <div
         className={`mx-5 mb-8 p-6 rounded-[2.5rem] border transition-all ${
           isDarkMode
@@ -183,7 +188,6 @@ export default function VerifyNinPage() {
         />
       </div>
 
-      {/* Slip Selection Area */}
       <div className="px-5 space-y-3 mb-8">
         <h3 className="text-[10px] font-black uppercase tracking-[0.3em] opacity-30 mb-4 px-2">
           Select Slip Type
@@ -210,7 +214,7 @@ export default function VerifyNinPage() {
               )}
               <div>
                 <p className="font-black text-sm tracking-tight">{slip.name}</p>
-                <p className={`text-[10px] font-medium opacity-60`}>
+                <p className="text-[10px] font-medium opacity-60">
                   {slip.desc}
                 </p>
               </div>
@@ -236,7 +240,7 @@ export default function VerifyNinPage() {
         <Button
           onClick={handleVerify}
           disabled={isProcessing}
-          className={`w-full h-16 rounded-[2rem] text-lg font-black transition-all active:scale-95 bg-emerald-500 text-white hover:bg-emerald-600 shadow-xl shadow-emerald-500/20`}
+          className="w-full h-16 rounded-[2rem] text-lg font-black transition-all active:scale-95 bg-emerald-500 text-white hover:bg-emerald-600 shadow-xl shadow-emerald-500/20"
         >
           {isProcessing ? (
             <Loader2 className="animate-spin" />

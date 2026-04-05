@@ -45,7 +45,11 @@ export default function VerifyBvnPage() {
 
     try {
       const raw = localStorage.getItem("user_session");
-      const session = JSON.parse(raw || "{}");
+      if (!raw) throw new Error("No session found");
+      const session = JSON.parse(raw);
+
+      // Security handshake token
+      const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 
       const response = await fetch(
         "https://pancity.com.ng/app/api/bvn/index.php",
@@ -53,27 +57,25 @@ export default function VerifyBvnPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Token ${session.token}`, // PHP expects token in header
+            Authorization: `Token ${today}`,
           },
           body: JSON.stringify({
-            phone: bvnNumber, // backend uses $body->phone
-            ref: `BVN_${Date.now()}`,
+            phone: bvnNumber,
+            user_phone: session.user_data?.phone || "", // Pass user phone for balance check
+            ref: `BVN_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
           }),
         }
       );
 
       const result = await response.json();
 
-      if (result.status === "success") {
+      if (response.ok && result.status === "success") {
         const updatedBalance = (
           parseFloat(balance) - VERIFICATION_COST
         ).toFixed(2);
-        // Update local session
-        if (raw) {
-          const sessionData = JSON.parse(raw);
-          sessionData.user_data.balance = updatedBalance;
-          localStorage.setItem("user_session", JSON.stringify(sessionData));
-        }
+        session.user_data.balance = updatedBalance;
+        localStorage.setItem("user_session", JSON.stringify(session));
+
         setBalance(updatedBalance);
         setMessage({ type: "success", text: "BVN Verification Successful!" });
         await Haptics.notification({ type: NotificationType.Success });
@@ -97,7 +99,6 @@ export default function VerifyBvnPage() {
         isDarkMode ? "bg-[#0f0a14] text-white" : "bg-slate-50 text-slate-900"
       }`}
     >
-      {/* Header */}
       <header className="px-5 flex justify-between items-center py-6">
         <Button
           onClick={() => router.back()}
@@ -126,7 +127,10 @@ export default function VerifyBvnPage() {
             Wallet
           </span>
           <span className="font-black text-sm text-emerald-500">
-            ₦{parseFloat(balance).toLocaleString()}
+            ₦
+            {parseFloat(balance).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+            })}
           </span>
         </div>
       </header>
@@ -142,7 +146,6 @@ export default function VerifyBvnPage() {
         </p>
       </div>
 
-      {/* Input Section */}
       <div
         className={`mx-5 mb-8 p-6 rounded-[2.5rem] border transition-all ${
           isDarkMode

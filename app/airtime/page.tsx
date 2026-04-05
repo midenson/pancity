@@ -1,4 +1,3 @@
-"use client";
 import BuyAirtimePage from "@/components/Airtime";
 import BuyCablePage from "@/components/BuyCable";
 import BuyDataPage from "@/components/BuyData";

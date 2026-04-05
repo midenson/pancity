@@ -5,7 +5,6 @@ import BuyElectricityPage from "@/components/BuyElectricity";
 import ExamPinsPage from "@/components/Exam";
 import FintechDashboard from "@/components/Homepage";
 import Login from "@/components/Login";
-import ProfilePage from "@/components/Profile";
 import FundAccountPage from "@/components/Topup";
 import TransactionList from "@/components/TransactionsList";
 import Image from "next/image";
@@ -16,13 +15,12 @@ export default function Home() {
       {/* <FintechDashboard /> */}
       {/* <BuyAirtimePage /> */}
       {/* <BuyDataPage /> */}
-      <ExamPinsPage />
       {/* <FundAccountPage /> */}
       {/* <TransactionList /> */}
       {/* <BuyElectricityPage /> */}
       {/* <BuyCablePage /> */}
-      {/* <ProfilePage /> */}
       {/* <Login /> */}
+      <ExamPinsPage />
     </div>
   );
 }

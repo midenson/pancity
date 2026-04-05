@@ -4,7 +4,7 @@ import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import PullToRefresh from "pulltorefreshjs"; // Ensure you run: npm install pulltorefreshjs
+import PullToRefresh from "pulltorefreshjs";
 import {
   MoreHorizontal,
   MessageSquare,
@@ -15,11 +15,14 @@ import {
   Clock,
   Sun,
   Moon,
-  RefreshCw,
+  X,
+  ArrowRightLeft,
+  CheckCircle2,
+  Loader2,
 } from "lucide-react";
 import Link from "next/link";
 
-// Service Item with dynamic theme support
+// --- SERVICE ITEM COMPONENT ---
 const ServiceItem = ({
   label,
   icon,
@@ -32,7 +35,9 @@ const ServiceItem = ({
   isDark: boolean;
 }) => {
   const handlePress = async () => {
-    await Haptics.impact({ style: ImpactStyle.Light });
+    try {
+      await Haptics.impact({ style: ImpactStyle.Light });
+    } catch (e) {}
   };
 
   return (
@@ -56,49 +61,85 @@ const ServiceItem = ({
   );
 };
 
+// --- MAIN DASHBOARD ---
 export default function FintechDashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isDarkMode, setIsDarkMode] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const adminPhone = "2347088138467";
+
+  // Initialize with empty strings to prevent hydration mismatch
   const [userData, setUserData] = useState({
     displayName: "User",
     balance: "0.00",
     cashback: "0.00",
-    email: "", // Needed for refresh request
+    phone: "",
   });
 
-  // --- REFRESH LOGIC ---
-  const syncDataFromStorage = useCallback(() => {
-    const rawSession = localStorage.getItem("user_session");
-    if (rawSession) {
-      try {
-        const session = JSON.parse(rawSession);
-        const user = session.user_data;
+  const [activeModal, setActiveModal] = useState<
+    null | "selection" | "action" | "success"
+  >(null);
+  const [isProcessingTransfer, setIsProcessingTransfer] = useState(false);
 
-        setUserData({
-          displayName: user?.full_name?.split(" ")[0] || "User",
-          email: user?.email || "",
-          balance: parseFloat(user?.balance || 0).toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-          }),
-          cashback: parseFloat(user?.cashback || 0).toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-          }),
-        });
-      } catch (e) {
-        console.error("Failed to parse session", e);
+  /**
+   * UPDATED: Sync logic to match your flat localStorage structure
+   */
+  const syncDataFromStorage = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    // Check for your flat structure first, then fallback to session if needed
+    const id = localStorage.getItem("id") || localStorage.getItem("token");
+    const fullName = localStorage.getItem("full_name");
+    const balance = localStorage.getItem("balance");
+    const cashback = localStorage.getItem("cashback");
+    const phone = localStorage.getItem("phone");
+
+    if (id) {
+      setUserData({
+        displayName: fullName?.split(" ")[0] || "User",
+        phone: phone || "",
+        balance: parseFloat(balance || "0").toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+        }),
+        cashback: parseFloat(cashback || "0").toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+        }),
+      });
+    } else {
+      // Fallback: Check if it's wrapped in user_session (old logic)
+      const rawSession = localStorage.getItem("user_session");
+      if (rawSession) {
+        try {
+          const session = JSON.parse(rawSession);
+          const user = session.user_data || session; // handles nested or flat JSON
+          setUserData({
+            displayName: user?.full_name?.split(" ")[0] || "User",
+            phone: user?.phone || "",
+            balance: parseFloat(user?.balance || 0).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+            }),
+            cashback: parseFloat(user?.cashback || 0).toLocaleString(
+              undefined,
+              {
+                minimumFractionDigits: 2,
+              }
+            ),
+          });
+        } catch (e) {
+          console.error("Failed to parse session", e);
+        }
       }
     }
   }, []);
 
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
+  const handleRefresh = useCallback(async () => {
     try {
-      // Get the email from current state or storage
-      const rawSession = localStorage.getItem("user_session");
-      if (!rawSession) return;
-      const session = JSON.parse(rawSession);
-      const phone = session.user_data?.phone;
+      const raw = localStorage.getItem("user_session");
+      if (!raw) return;
+      const session = JSON.parse(raw);
+      const phone = session.user_data?.phone || localStorage.getItem("phone");
+
+      if (!phone) throw new Error("No phone found for refresh");
 
       const response = await fetch(
         "https://pancity.com.ng/app/api/user/app-refresh/index.php",
@@ -112,59 +153,119 @@ export default function FintechDashboard() {
       const result = await response.json();
 
       if (result.status === "success") {
-        await Haptics.impact({ style: ImpactStyle.Medium });
+        try {
+          await Haptics.impact({ style: ImpactStyle.Medium });
+        } catch (e) {}
 
-        // 1. Replicate login.tsx storage pattern exactly
-        const token = result.token || "";
-        const updatedUserData = result.user_data || {};
+        const user = result.user_data;
+        if (user) {
+          // 1. Update flat keys
+          localStorage.setItem("balance", user.balance);
+          localStorage.setItem("cashback", user.cashback);
+          localStorage.setItem("full_name", user.full_name);
+          if (result.token) localStorage.setItem("token", result.token);
 
-        const sessionData = {
-          token: token,
-          user_data: updatedUserData,
-        };
+          // 2. Update user_session object to maintain synchronization
+          const updatedSession = {
+            ...session,
+            token: result.token || session.token,
+            user_data: {
+              ...session.user_data,
+              ...user,
+            },
+          };
+          localStorage.setItem("user_session", JSON.stringify(updatedSession));
+        }
 
-        localStorage.setItem("user_session", JSON.stringify(sessionData));
-        localStorage.setItem("token", token);
-        localStorage.setItem("user_data", JSON.stringify(updatedUserData));
-        localStorage.setItem("userToken", token);
-
-        // 2. Sync UI
         syncDataFromStorage();
       }
     } catch (error) {
       console.error("Refresh failed:", error);
-    } finally {
-      setIsRefreshing(false);
     }
-  };
+  }, [syncDataFromStorage]);
 
+  // Setup PullToRefreshJS
   useEffect(() => {
-    // 1. Initial Data Sync
-    syncDataFromStorage();
-
-    // 2. Handle Theme
-    const savedTheme = localStorage.getItem("app_theme");
-    setIsDarkMode(savedTheme !== "light");
-
-    // 3. Dynamic Clock
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-
-    // 4. Pull to Refresh Initialization
+    // Initialize PTR
     const ptr = PullToRefresh.init({
       mainElement: "body",
       onRefresh() {
         return handleRefresh();
       },
-      distMax: 80,
       distThreshold: 60,
-      instructionsPullToRefresh: "Pull down to refresh",
-      instructionsReleaseToRefresh: "Release to update balance",
-      instructionsRefreshing: "Updating...",
+      distMax: 90,
+      shouldPullToRefresh: () => window.scrollY === 0,
     });
+
+    // Cleanup
+    return () => {
+      ptr.destroy();
+    };
+  }, [handleRefresh]);
+
+  const handleTransferCashback = async () => {
+    setIsProcessingTransfer(true);
+    try {
+      await Haptics.impact({ style: ImpactStyle.Medium });
+    } catch (e) {}
+    try {
+      const raw = localStorage.getItem("user_session");
+      if (!raw) return;
+      const session = JSON.parse(raw);
+      const phone = session.user_data?.phone;
+
+      if (!phone) return;
+
+      const response = await fetch(
+        "https://pancity.com.ng/app/api/user/cashback-transfer/index.php",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone }),
+        }
+      );
+      const result = await response.json();
+      if (result.status === "success") {
+        setActiveModal("success");
+        handleRefresh();
+      } else {
+        alert(result.msg || "Transfer failed");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsProcessingTransfer(false);
+    }
+  };
+
+  // --- ADDED: AUTO-REFRESH ON ARRIVAL ---
+  useEffect(() => {
+    handleRefresh();
+  }, [handleRefresh]);
+
+  useEffect(() => {
+    syncDataFromStorage();
+
+    // Theme setup
+    const savedTheme = localStorage.getItem("app_theme");
+    setIsDarkMode(savedTheme !== "light");
+
+    // Timer for greeting
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+
+    // Cross-tab sync
+    const handleStorageChange = (e: StorageEvent) => {
+      if (
+        ["balance", "cashback", "full_name", "user_session"].includes(e.key!)
+      ) {
+        syncDataFromStorage();
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
 
     return () => {
       clearInterval(timer);
-      ptr.destroy(); // Cleanup on unmount
+      window.removeEventListener("storage", handleStorageChange);
     };
   }, [syncDataFromStorage]);
 
@@ -172,7 +273,9 @@ export default function FintechDashboard() {
     const newMode = !isDarkMode;
     setIsDarkMode(newMode);
     localStorage.setItem("app_theme", newMode ? "dark" : "light");
-    await Haptics.impact({ style: ImpactStyle.Medium });
+    try {
+      await Haptics.impact({ style: ImpactStyle.Medium });
+    } catch (e) {}
   };
 
   const getGreeting = () => {
@@ -184,11 +287,130 @@ export default function FintechDashboard() {
 
   return (
     <div
-      className={`min-h-screen transition-colors duration-500 pb-24 pt-safe px-6 ${
+      className={`min-h-screen w-[100vw] transition-colors duration-500 pb-32 pt-safe px-6 ${
         isDarkMode ? "bg-[#0f0a14] text-white" : "bg-slate-50 text-slate-900"
       }`}
     >
-      {/* Header Section */}
+      {/* Modals */}
+      {activeModal && (
+        <>
+          <div
+            onClick={() => setActiveModal(null)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] transition-opacity"
+          />
+          <div
+            className={`fixed bottom-0 left-0 right-0 z-[101] p-6 rounded-t-[2.5rem] shadow-2xl transition-transform duration-300 transform translate-y-0 ${
+              isDarkMode ? "bg-[#1c1425] text-white" : "bg-white text-slate-900"
+            }`}
+          >
+            <div className="w-12 h-1.5 bg-gray-600/30 rounded-full mx-auto mb-6" />
+
+            {activeModal === "selection" && (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-xl font-bold">Cashback Wallet</h3>
+                  <X
+                    onClick={() => setActiveModal(null)}
+                    className="opacity-50 cursor-pointer"
+                  />
+                </div>
+                <div
+                  className={`p-5 rounded-2xl border ${
+                    isDarkMode
+                      ? "border-white/5 bg-white/5"
+                      : "border-slate-100 bg-slate-50"
+                  }`}
+                >
+                  <p className="text-[10px] uppercase tracking-widest font-bold text-emerald-500 mb-1">
+                    Total Available
+                  </p>
+                  <p className="text-4xl font-bold">₦{userData.cashback}</p>
+                </div>
+                <button
+                  onClick={() => setActiveModal("action")}
+                  className="w-full py-7 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-lg active:scale-95 transition-transform flex items-center justify-center gap-2"
+                >
+                  <ArrowRightLeft className="h-5 w-5" /> Transfer to Main
+                  Balance
+                </button>
+              </div>
+            )}
+
+            {activeModal === "action" && (
+              <div className="space-y-6 text-center">
+                <h3 className="text-xl font-bold">Confirm Transfer</h3>
+                <p className="text-sm opacity-70">
+                  Are you sure you want to move{" "}
+                  <span className="text-emerald-500 font-bold">
+                    ₦{userData.cashback}
+                  </span>{" "}
+                  to your main wallet?
+                </p>
+                <div className="flex items-center justify-center gap-6 py-4">
+                  <div className="text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-orange-500/10 flex items-center justify-center mx-auto mb-2 text-2xl">
+                      💰
+                    </div>
+                    <p className="text-[10px] font-bold opacity-50 uppercase">
+                      Cashback
+                    </p>
+                  </div>
+                  <ArrowRightLeft className="text-emerald-500 h-6 w-6" />
+                  <div className="text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto mb-2 text-2xl">
+                      🏦
+                    </div>
+                    <p className="text-[10px] font-bold opacity-50 uppercase">
+                      Main Wallet
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setActiveModal("selection")}
+                    className="flex-1 py-6 rounded-xl"
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    disabled={isProcessingTransfer}
+                    onClick={handleTransferCashback}
+                    className="flex-[2] py-6 rounded-xl bg-emerald-500 text-white font-bold"
+                  >
+                    {isProcessingTransfer ? (
+                      <Loader2 className="animate-spin h-5 w-5" />
+                    ) : (
+                      "Confirm & Transfer"
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {activeModal === "success" && (
+              <div className="space-y-6 text-center py-4">
+                <div className="flex justify-center">
+                  <CheckCircle2 className="w-20 h-20 text-emerald-500" />
+                </div>
+                <h3 className="text-2xl font-bold">Transfer Successful!</h3>
+                <p className="opacity-70 px-6">
+                  Your cashback has been successfully moved to your main wallet
+                  balance.
+                </p>
+                <Button
+                  onClick={() => setActiveModal(null)}
+                  className="w-full py-6 rounded-2xl bg-slate-800 text-white font-bold"
+                >
+                  Done
+                </Button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Header */}
       <header className="flex justify-between items-center py-6">
         <div className="flex items-center gap-3">
           <Avatar className="h-12 w-12 border-2 border-emerald-500">
@@ -197,7 +419,6 @@ export default function FintechDashboard() {
               {userData.displayName.substring(0, 2).toUpperCase()}
             </AvatarFallback>
           </Avatar>
-
           <button
             onClick={toggleTheme}
             className={`relative w-14 h-7 rounded-full transition-all duration-300 flex items-center px-1 ${
@@ -219,7 +440,6 @@ export default function FintechDashboard() {
             </div>
           </button>
         </div>
-
         <div
           className={`p-2.5 rounded-full backdrop-blur-md transition-colors ${
             isDarkMode
@@ -227,15 +447,12 @@ export default function FintechDashboard() {
               : "bg-white shadow-sm text-emerald-600"
           }`}
         >
-          {isRefreshing ? (
-            <RefreshCw className="w-5 h-5 animate-spin" />
-          ) : (
+          <Link href={"/transactions"}>
             <Clock className="w-5 h-5" />
-          )}
+          </Link>
         </div>
       </header>
 
-      {/* Greeting Section */}
       <div className="space-y-1 mb-8">
         <p
           className={`text-sm flex items-center gap-2 ${
@@ -252,13 +469,11 @@ export default function FintechDashboard() {
           })}
         </p>
         <h1 className="text-3xl font-bold tracking-tight">
-          {getGreeting()},
-          <br />
+          {getGreeting()},<br />
           <span className="text-emerald-500">{userData.displayName}!</span>
         </h1>
       </div>
 
-      {/* Main Wallet Card */}
       <Card
         className={`border-none rounded-[2.5rem] overflow-hidden mb-8 shadow-2xl transition-all duration-500 ${
           isDarkMode ? "bg-[#1c1425]" : "bg-white border border-slate-200"
@@ -289,7 +504,7 @@ export default function FintechDashboard() {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={handleRefresh}
+                onClick={() => setActiveModal("selection")}
                 className={`rounded-full h-9 w-9 ${
                   isDarkMode
                     ? "bg-gray-800/50 text-white"
@@ -311,7 +526,10 @@ export default function FintechDashboard() {
               </span>
               {userData.balance}
             </h2>
-            <p className="text-xs flex items-center gap-2 mt-2">
+            <div
+              onClick={() => setActiveModal("selection")}
+              className="text-xs flex items-center gap-2 mt-2 cursor-pointer active:opacity-60 transition-all"
+            >
               <span className="bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded-full font-bold">
                 ₦{userData.cashback}
               </span>
@@ -322,12 +540,11 @@ export default function FintechDashboard() {
               >
                 Available Cashback
               </span>
-            </p>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Services Grid */}
       <div
         className={`rounded-[2.5rem] p-8 grid grid-cols-3 gap-y-10 gap-x-4 relative border transition-all duration-500 shadow-xl ${
           isDarkMode
@@ -359,14 +576,24 @@ export default function FintechDashboard() {
             icon="📺"
           />
         </Link>
-        <Link href={"./fund"}>
+        <div
+          onClick={async () => {
+            try {
+              await Haptics.impact({ style: ImpactStyle.Medium });
+            } catch (e) {}
+            window.open(
+              `https://wa.me/${adminPhone}?text=hey there, i want to exchange my airtime for cash`,
+              "_blank"
+            );
+          }}
+        >
           <ServiceItem
             isDark={isDarkMode}
-            label="Fund Wallet"
+            label="Airtime 2 cash"
             color="bg-[#fce5b4]"
             icon="💳"
           />
-        </Link>
+        </div>
         <Link href={"./electricity"}>
           <ServiceItem
             isDark={isDarkMode}
@@ -383,8 +610,20 @@ export default function FintechDashboard() {
             icon={<span className="text-sm font-black italic">Exam</span>}
           />
         </Link>
-
-        <div className="col-span-3 flex flex-col items-center mt-6 gap-4">
+        <div
+          className="col-span-3 flex flex-col items-center mt-6 gap-4"
+          onClick={async () => {
+            try {
+              await Haptics.impact({ style: ImpactStyle.Medium });
+            } catch (e) {}
+            window.open(
+              `https://wa.me/${adminPhone}?text=${encodeURIComponent(
+                "Hello, I am using the Pancity App. I would like to suggest a new service: "
+              )}`,
+              "_blank"
+            );
+          }}
+        >
           <p
             className={`text-[11px] uppercase tracking-widest font-bold ${
               isDarkMode ? "text-gray-500" : "text-slate-400"
@@ -403,15 +642,28 @@ export default function FintechDashboard() {
             Suggest a Product
           </Button>
         </div>
-
-        <div className="absolute right-4 -bottom-6 bg-emerald-500 p-4 rounded-2xl shadow-lg shadow-emerald-500/20 active:scale-90 transition-transform cursor-pointer">
+        <div
+          className="absolute right-4 -bottom-6 bg-emerald-500 p-4 rounded-2xl shadow-lg shadow-emerald-500/20 active:scale-90 transition-transform cursor-pointer z-10"
+          onClick={async () => {
+            try {
+              await Haptics.impact({ style: ImpactStyle.Medium });
+            } catch (e) {}
+            const userName = userData.displayName || "User";
+            window.open(
+              `https://wa.me/${adminPhone}?text=${encodeURIComponent(
+                `Hello Admin, I am ${userName}. I need assistance with the Pancity App.`
+              )}`,
+              "_blank"
+            );
+          }}
+        >
           <MessageSquare className="w-6 h-6 text-white" />
         </div>
       </div>
 
-      {/* Bottom Navigation */}
+      {/* Navigation */}
       <nav
-        className={`fixed bottom-0 left-0 right-0 border-t px-8 py-4 flex justify-between items-end pb-8 backdrop-blur-xl transition-all duration-500 ${
+        className={`fixed bottom-0 left-0 right-0 border-t px-8 py-4 flex justify-between items-end pb-8 backdrop-blur-xl transition-all duration-500 z-50 ${
           isDarkMode
             ? "bg-black/80 border-white/5"
             : "bg-white/90 border-slate-100"

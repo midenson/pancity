@@ -1,16 +1,33 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 
 const Login = () => {
+  // We keep the state intuitive for the UI
   const [formData, setFormData] = useState({ phone: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
+  const [isChecking, setIsChecking] = useState(true);
+
+  useEffect(() => {
+    const checkSession = () => {
+      const savedSession = localStorage.getItem("user_session");
+      const savedToken = localStorage.getItem("userToken");
+
+      if (savedSession && savedToken) {
+        router.replace("/dashboard");
+      } else {
+        setIsChecking(false); // No session found, show the login form
+      }
+    };
+
+    checkSession();
+  }, [router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,15 +35,26 @@ const Login = () => {
     setError("");
 
     try {
+      // 1. Generate the Handshake Token (YYYYMMDD) - ONLY for the login request
+      const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+
       const response = await fetch(
-        "https://pancity.com.ng/app/api/user/index.php",
+        "https://pancity.com.ng/app/api/account/login/index.php",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(formData),
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Token ${today}`,
+          },
+          // 2. Map "password" to "accesspass" for the backend
+          body: JSON.stringify({
+            phone: formData.phone,
+            accesspass: formData.password,
+          }),
         }
       );
 
+      // 3. Robust Response Handling
       const rawText = await response.text();
       const cleanText = rawText.trim().replace(/^\uFEFF/, "");
 
@@ -35,52 +63,66 @@ const Login = () => {
         result = JSON.parse(cleanText);
       } catch (jsonErr) {
         console.error("Parsing failed. Raw response was:", rawText);
-        setError("Server returned an invalid format.");
+        setError("Server communication error. Please try again.");
         setLoading(false);
         return;
       }
 
       if (result.status === "success") {
-        /**
-         * FRONTEND FIX:
-         * We store the data in the exact keys the dashboard components look for.
-         */
-        const token = result.token || "";
-        const userData = result.user_data || {};
+        if (!result.token || result.token.includes("FIX_DATABASE")) {
+          setError(
+            "Account Error: Your API Key is missing in the database. Please contact admin."
+          );
+          setLoading(false);
+          return;
+        }
 
-        // 1. Store as a combined session object
         const sessionData = {
-          token: token,
-          user_data: userData,
+          token: result.token,
+          user_data: result.user_data || {},
         };
+
+        // Save the real persistent token from the DB
         localStorage.setItem("user_session", JSON.stringify(sessionData));
+        localStorage.setItem("userToken", sessionData.token);
 
-        // 2. Store as individual keys (This fixes your {token: "", user_data: {}} issue)
-        localStorage.setItem("token", token);
-        localStorage.setItem("user_data", JSON.stringify(userData));
-
-        // 3. Backward compatibility key
-        localStorage.setItem("userToken", token);
-
-        // Navigate to dashboard
         router.push("/dashboard");
       } else {
         setError(result.msg || "Invalid login credentials");
       }
     } catch (err) {
       console.error("Fetch Error:", err);
-      setError("Connection failed. Please check your internet.");
+      setError("Connection failed. Check your internet.");
     } finally {
       setLoading(false);
     }
   };
 
+  if (isChecking) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-white">
+        <div className="animate-pulse flex flex-col items-center">
+          <img
+            src="./pancity_bg.png"
+            alt="logo"
+            width={100}
+            height={100}
+            className="mb-4"
+          />
+          <p className="text-xs text-gray-400 font-medium">
+            Securing session...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center px-6 py-12 font-sans text-black">
       <div className="w-full max-w-sm flex flex-col items-center">
-        {/* Abstract Dot Logo */}
+        {/* Logo */}
         <div className="mb-10">
-          <svg
+          {/* <svg
             width="50"
             height="50"
             viewBox="0 0 50 50"
@@ -100,15 +142,14 @@ const Login = () => {
               strokeWidth="4"
               strokeLinecap="round"
             />
-          </svg>
+          </svg> */}
+          <img src={"./pancity_bg.png"} alt="logo" width={130} height={130} />
         </div>
 
-        {/* Heading */}
         <h1 className="text-3xl font-bold tracking-tight mb-2 text-center w-full">
           Welcome back, User <span className="text-2xl ml-1">😎</span>
         </h1>
 
-        {/* Subheading Link */}
         <button
           type="button"
           onClick={() => router.push("/signup")}
@@ -117,24 +158,21 @@ const Login = () => {
           Don't have an account? Sign up
         </button>
 
-        {/* Form Container */}
         <form className="w-full space-y-5" onSubmit={handleLogin}>
           <div className="space-y-1.5">
             <label className="block text-xs text-gray-500 font-medium ml-1">
               Your phone
             </label>
-            <div className="relative">
-              <input
-                type="tel"
-                required
-                value={formData.phone}
-                onChange={(e) =>
-                  setFormData({ ...formData, phone: e.target.value })
-                }
-                placeholder="08012345678"
-                className="w-full px-4 py-3.5 border border-gray-200 rounded-md text-sm placeholder:text-gray-300 focus:outline-none focus:border-gray-400 focus:ring-0 transition-colors bg-white"
-              />
-            </div>
+            <input
+              type="tel"
+              required
+              value={formData.phone}
+              onChange={(e) =>
+                setFormData({ ...formData, phone: e.target.value })
+              }
+              placeholder="08012345678"
+              className="w-full px-4 py-3.5 border border-gray-200 rounded-md text-sm placeholder:text-gray-300 focus:outline-none focus:border-gray-400 transition-colors bg-white"
+            />
           </div>
 
           <div className="space-y-1.5">
@@ -150,7 +188,7 @@ const Login = () => {
                   setFormData({ ...formData, password: e.target.value })
                 }
                 placeholder="..............."
-                className="w-full pl-4 pr-12 py-3.5 border border-gray-200 rounded-md text-sm placeholder:text-gray-300 focus:outline-none focus:border-gray-400 focus:ring-0 transition-colors bg-white tracking-widest"
+                className="w-full pl-4 pr-12 py-3.5 border border-gray-200 rounded-md text-sm placeholder:text-gray-300 focus:outline-none focus:border-gray-400 transition-colors bg-white tracking-widest"
               />
               <button
                 type="button"
@@ -204,7 +242,6 @@ const Login = () => {
               </div>
               <span className="text-xs text-gray-600">Remember me</span>
             </label>
-
             <button
               type="button"
               className="text-xs text-gray-600 underline decoration-gray-400 underline-offset-4 hover:text-black transition-colors"
