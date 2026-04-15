@@ -1,5 +1,6 @@
 "use client";
 import React, { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation"; // Added for URL handling
 import {
   Smartphone,
   Gift,
@@ -29,9 +30,11 @@ interface Transaction {
 }
 
 const TransactionPage = () => {
+  const searchParams = useSearchParams(); // Hook to access URL parameters
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [openRef, setOpenRef] = useState<string | null>(null); // State to control which dialog is open
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("app_theme");
@@ -55,6 +58,12 @@ const TransactionPage = () => {
         const result = await response.json();
         if (result.status === "success" && Array.isArray(result.data)) {
           setTransactions(result.data);
+
+          // Check for 'ref' in URL after transactions load
+          const refFromUrl = searchParams.get("ref");
+          if (refFromUrl) {
+            setOpenRef(refFromUrl);
+          }
         }
       } catch (error) {
         console.error("Failed to fetch transactions:", error);
@@ -63,12 +72,10 @@ const TransactionPage = () => {
       }
     };
     loadTransactions();
-  }, []);
+  }, [searchParams]); // Re-run if search parameters change
 
   /**
-   * CORRECTED: Status Mapping
-   * Treats "0", "5", and "success" variants as Successful.
-   * Everything else defaults to Failed.
+   * Status Mapping
    */
   const isSuccessful = (status: string | number) => {
     const s = String(status).toLowerCase().trim();
@@ -83,9 +90,7 @@ const TransactionPage = () => {
   };
 
   /**
-   * REFINED: Type Mapping
-   * Determines if the service is airtime, data, etc.
-   * used for both the list icons and the receipt data.
+   * Service Type Mapping
    */
   const mapType = (
     service: string,
@@ -122,6 +127,36 @@ const TransactionPage = () => {
       return "electricity";
     }
     return "airtime";
+  };
+
+  /**
+   * Recipient Parsing Logic
+   */
+  const parseRecipient = (desc: string, serviceName: string) => {
+    const text = desc.trim();
+    const emailMatch = text.match(
+      /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/
+    );
+    if (emailMatch) return emailMatch[0];
+
+    const phoneMatch = text.match(/(070|080|081|090|091|020)\d{8}/);
+    if (phoneMatch) return phoneMatch[0];
+
+    const idMatch = text.match(/(?:to|for|id|account)\s+([a-zA-Z0-9]{5,})/i);
+    if (idMatch) return idMatch[1];
+
+    const fallbackNumbers = text.match(/\d{5,}/g);
+    if (fallbackNumbers) return fallbackNumbers[fallbackNumbers.length - 1];
+
+    return "N/A";
+  };
+
+  /**
+   * Data Volume Extraction
+   */
+  const extractDataVolume = (desc: string) => {
+    const match = desc.match(/(\d+(?:\.\d+)?\s*(?:GB|MB|TB|KB))/i);
+    return match ? match[0].toUpperCase().replace(/\s/g, "") : null;
   };
 
   const getIcon = (service: string, desc: string) => {
@@ -188,9 +223,23 @@ const TransactionPage = () => {
           transactions.map((tx) => {
             const success = isSuccessful(tx.status);
             const transactionType = mapType(tx.servicename, tx.servicedesc);
+            const recipient = parseRecipient(tx.servicedesc, tx.servicename);
+            const dataVolume = extractDataVolume(tx.servicedesc);
+
+            const mainDisplayAmount =
+              transactionType === "data" && dataVolume
+                ? dataVolume
+                : `₦${Math.abs(parseFloat(tx.amount)).toLocaleString()}`;
 
             return (
-              <Dialog key={tx.transref}>
+              <Dialog
+                key={tx.transref}
+                open={openRef === tx.transref}
+                onOpenChange={(isOpen) => {
+                  if (isOpen) setOpenRef(tx.transref);
+                  else setOpenRef(null);
+                }}
+              >
                 <DialogTrigger asChild>
                   <div
                     className={`flex items-center gap-4 p-4 rounded-[1.25rem] cursor-pointer transition-all active:scale-[0.97] border ${
@@ -226,7 +275,7 @@ const TransactionPage = () => {
                           isDarkMode ? "text-white" : "text-slate-900"
                         }`}
                       >
-                        ₦{Math.abs(parseFloat(tx.amount)).toLocaleString()}
+                        {mainDisplayAmount}
                       </p>
                       <div className="flex items-center justify-end gap-1 mt-0.5">
                         <span
@@ -253,12 +302,15 @@ const TransactionPage = () => {
                       isDark={isDarkMode}
                       data={{
                         id: tx.transref,
-                        amount: Math.abs(parseFloat(tx.amount)).toString(),
-                        // Explicitly pass "success" or "failed" as the receipt component expects
+                        amount:
+                          transactionType === "data" && dataVolume
+                            ? dataVolume
+                            : Math.abs(parseFloat(tx.amount)).toString(),
+                        cost: Math.abs(parseFloat(tx.amount)).toString(),
                         status: success ? "success" : "failed",
                         type: transactionType,
                         provider: tx.servicename,
-                        recipient: tx.servicedesc.match(/\d+/)?.[0] || "N/A",
+                        recipient: recipient,
                         date: tx.date,
                         ref: tx.transref,
                       }}
