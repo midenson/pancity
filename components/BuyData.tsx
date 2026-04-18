@@ -286,8 +286,8 @@ export default function BuyDataPage() {
               <Image
                 src="/pancity_bg.png"
                 alt="Logo"
-                width={80}
-                height={80}
+                width={85}
+                height={85}
                 className="relative z-10"
               />
             </div>

@@ -1,6 +1,6 @@
 "use client";
-import React, { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation"; // Added for URL handling
+import React, { useEffect, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Smartphone,
   Gift,
@@ -29,12 +29,13 @@ interface Transaction {
   date: string;
 }
 
-const TransactionPage = () => {
-  const searchParams = useSearchParams(); // Hook to access URL parameters
+// Inner component to safely use useSearchParams
+const TransactionContent = () => {
+  const searchParams = useSearchParams();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(true);
-  const [openRef, setOpenRef] = useState<string | null>(null); // State to control which dialog is open
+  const [openRef, setOpenRef] = useState<string | null>(null);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("app_theme");
@@ -59,7 +60,6 @@ const TransactionPage = () => {
         if (result.status === "success" && Array.isArray(result.data)) {
           setTransactions(result.data);
 
-          // Check for 'ref' in URL after transactions load
           const refFromUrl = searchParams.get("ref");
           if (refFromUrl) {
             setOpenRef(refFromUrl);
@@ -72,11 +72,8 @@ const TransactionPage = () => {
       }
     };
     loadTransactions();
-  }, [searchParams]); // Re-run if search parameters change
+  }, [searchParams]);
 
-  /**
-   * Status Mapping
-   */
   const isSuccessful = (status: string | number) => {
     const s = String(status).toLowerCase().trim();
     return (
@@ -89,24 +86,19 @@ const TransactionPage = () => {
     );
   };
 
-  /**
-   * Service Type Mapping
-   */
   const mapType = (
     service: string,
     desc: string
   ): "airtime" | "data" | "cable" | "electricity" => {
     const combined = (service + " " + desc).toLowerCase();
-
     if (
       combined.includes("data") ||
       combined.includes("gb") ||
       combined.includes("mb") ||
       combined.includes("sme") ||
       combined.includes("gifting")
-    ) {
+    )
       return "data";
-    }
     if (
       combined.includes("tv") ||
       combined.includes("cable") ||
@@ -114,46 +106,34 @@ const TransactionPage = () => {
       combined.includes("gotv") ||
       combined.includes("showmax") ||
       combined.includes("startimes")
-    ) {
+    )
       return "cable";
-    }
     if (
       combined.includes("electric") ||
       combined.includes("power") ||
       combined.includes("meter") ||
       combined.includes("ekedc") ||
       combined.includes("ikedc")
-    ) {
+    )
       return "electricity";
-    }
     return "airtime";
   };
 
-  /**
-   * Recipient Parsing Logic
-   */
   const parseRecipient = (desc: string, serviceName: string) => {
     const text = desc.trim();
     const emailMatch = text.match(
       /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/
     );
     if (emailMatch) return emailMatch[0];
-
     const phoneMatch = text.match(/(070|080|081|090|091|020)\d{8}/);
     if (phoneMatch) return phoneMatch[0];
-
     const idMatch = text.match(/(?:to|for|id|account)\s+([a-zA-Z0-9]{5,})/i);
     if (idMatch) return idMatch[1];
-
     const fallbackNumbers = text.match(/\d{5,}/g);
     if (fallbackNumbers) return fallbackNumbers[fallbackNumbers.length - 1];
-
     return "N/A";
   };
 
-  /**
-   * Data Volume Extraction
-   */
   const extractDataVolume = (desc: string) => {
     const match = desc.match(/(\d+(?:\.\d+)?\s*(?:GB|MB|TB|KB))/i);
     return match ? match[0].toUpperCase().replace(/\s/g, "") : null;
@@ -162,15 +142,12 @@ const TransactionPage = () => {
   const getIcon = (service: string, desc: string) => {
     const type = mapType(service, desc);
     const s = (service + " " + desc).toLowerCase();
-
     if (type === "data") return <Wifi className="text-blue-500" size={18} />;
     if (type === "cable") return <Tv className="text-orange-500" size={18} />;
     if (type === "electricity")
       return <Zap className="text-yellow-500" size={18} />;
-
     if (s.includes("bonus") || s.includes("interest") || s.includes("refund"))
       return <Gift className="text-emerald-500" size={18} />;
-
     return <Smartphone className="text-zinc-400" size={18} />;
   };
 
@@ -225,7 +202,6 @@ const TransactionPage = () => {
             const transactionType = mapType(tx.servicename, tx.servicedesc);
             const recipient = parseRecipient(tx.servicedesc, tx.servicename);
             const dataVolume = extractDataVolume(tx.servicedesc);
-
             const mainDisplayAmount =
               transactionType === "data" && dataVolume
                 ? dataVolume
@@ -255,7 +231,6 @@ const TransactionPage = () => {
                     >
                       {getIcon(tx.servicename, tx.servicedesc)}
                     </div>
-
                     <div className="flex-1 min-w-0">
                       <h3 className="text-[13px] font-bold truncate leading-tight">
                         {tx.servicedesc}
@@ -268,7 +243,6 @@ const TransactionPage = () => {
                         {tx.date}
                       </p>
                     </div>
-
                     <div className="text-right shrink-0">
                       <p
                         className={`text-sm font-black ${
@@ -290,7 +264,6 @@ const TransactionPage = () => {
                     </div>
                   </div>
                 </DialogTrigger>
-
                 <DialogContent
                   className={`max-w-[92vw] rounded-[2rem] p-0 border-none overflow-hidden ${
                     isDarkMode ? "bg-[#1c1425]" : "bg-white"
@@ -323,6 +296,23 @@ const TransactionPage = () => {
         )}
       </main>
     </div>
+  );
+};
+
+// Main Page with Suspense Boundary for build compliance
+const TransactionPage = () => {
+  return (
+    <Suspense
+      fallback={
+        <div className="fixed inset-0 flex items-center justify-center bg-[#0f0a14]">
+          <div className="animate-pulse font-black tracking-widest uppercase text-[10px] text-white">
+            Loading...
+          </div>
+        </div>
+      }
+    >
+      <TransactionContent />
+    </Suspense>
   );
 };
 
