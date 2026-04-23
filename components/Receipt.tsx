@@ -78,7 +78,7 @@ export default function TransactionReceipt({
       if (Capacitor.isNativePlatform()) {
         // --- NATIVE MOBILE LOGIC ---
         const base64Data = getBase64Data(dataUrl);
-        const folderName = "almu_receipts";
+        const folderName = "pancity_receipts";
         const fileName = `receipt-${data.ref}.png`;
         const fullPath = `${folderName}/${fileName}`;
 
@@ -157,7 +157,7 @@ export default function TransactionReceipt({
             await navigator.share({
               files: [file],
               title: "Transaction Receipt",
-              text: "My transaction receipt from Almu",
+              text: "My transaction receipt from Pancity",
             });
             return;
           }

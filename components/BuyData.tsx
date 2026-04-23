@@ -178,7 +178,7 @@ export default function BuyDataPage() {
       const token = `Token ${y}${m}${d}`;
 
       const response = await fetch(
-        "https://almudatasub.com.ng/app/api/data/plans/index.php",
+        "https://pancity.com.ng/app/api/data/plans/index.php",
         {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: token },
@@ -375,7 +375,7 @@ export default function BuyDataPage() {
             <div className="absolute inset-0 bg-emerald-500/20 blur-3xl rounded-full animate-pulse" />
             <div className="animate-pulse-scale">
               <Image
-                src="/almu_bg.png"
+                src="/pancity_bg.png"
                 alt="Logo"
                 width={85}
                 height={85}
